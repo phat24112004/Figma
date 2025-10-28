@@ -1,51 +1,40 @@
-import React, { useState } from "react";
-import { FaSearch } from "react-icons/fa"; // Icon for search input
-import { FiFilter } from "react-icons/fi"; // Icon for filter toggle
-import { ChevronDown, Copy, FolderDown, ArrowBigUp, House, MessageCirclePlus, MessageCircle, Plus, X } from 'lucide-react'; // Icons for various UI elements
-import Sidebar from "../components/Sidebar"; // Sidebar component for navigation
-import * as XLSX from "xlsx"; // Library for exporting data to Excel
+import React, { useState, useEffect } from "react";
+import { FaSearch } from "react-icons/fa";
+import { FiFilter } from "react-icons/fi";
+import {
+  ChevronDown,
+  Copy,
+  FolderDown,
+  House,
+  MessageCirclePlus,
+  MessageCircle,
+  Plus,
+  X,
+} from "lucide-react";
+import Sidebar from "../components/Sidebar";
+import * as XLSX from "xlsx";
+import axios from "axios";
 
-// Dashboard component: Main UI for managing talent members
 export default function Dashboard() {
-  // State for managing search input
+  // === STATES ===
   const [searchTerm, setSearchTerm] = useState("");
-  // State to toggle visibility of the filter panel
   const [showFilters, setShowFilters] = useState(false);
-  // State to track copied email for copy feedback
   const [copy, setCopy] = useState("");
-  // State to track which talent's comment panel is active
   const [activeCommentTalent, setActiveCommentTalent] = useState<string | null>(null);
-  // State to store comments for each talent
   const [comments, setComments] = useState<{ [key: string]: string[] }>({});
-  // State to manage active tab (comments, jobComments, or logs)
   const [activeTab, setActiveTab] = useState<"comments" | "jobComments" | "logs">("comments");
-  // State to manage which filter section is expanded
   const [openFilter, setOpenFilter] = useState<string | null>(null);
-  // State for selected position filters
   const [selectedPositions, setSelectedPositions] = useState<string[]>([]);
-  // State for selected level filters
   const [selectedLevels, setSelectedLevels] = useState<string[]>([]);
-  // State for minimum and maximum years of experience filters
   const [minExp, setMinExp] = useState(0);
   const [maxExp, setMaxExp] = useState(30);
 
-  // Function to copy an email to clipboard and show feedback
-  const handleCopyEmail = (email: string) => {
-    navigator.clipboard.writeText(email).then(() => {
-      setCopy(email); // Set copied email for feedback
-      setTimeout(() => setCopy(""), 2000); // Clear feedback after 2 seconds
-    });
-  };
+  // API DATA STATES 
+  const [talents, setTalents] = useState();
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
 
-  // Function to export talent data to an Excel file
-  const handleExport = () => {
-    const worksheet = XLSX.utils.json_to_sheet(talents); // Convert talents array to worksheet
-    const workbook = XLSX.utils.book_new(); // Create a new workbook
-    XLSX.utils.book_append_sheet(workbook, worksheet, "Talent Members"); // Add worksheet to workbook
-    XLSX.writeFile(workbook, "talents.xlsx"); // Download the Excel file
-  };
-
-  // Array of available job positions for filtering
+  // CONSTANTS
   const allPositions = [
     "3D Artist/Design",
     "AI Engineer",
@@ -54,126 +43,153 @@ export default function Dashboard() {
     "CTO",
     "Data Analyst",
   ];
-
-  // Array of available levels for filtering
   const allLevel = ["All", "Level 1", "Level 2", "Level 3", "Level 4", "Level 5"];
-  const levelOptions = allLevel.slice(1); // Exclude "All" for individual level selection
-
-  // Filter positions based on search term
-  const filteredPositions = allPositions.filter((pos) =>
-    pos.toLowerCase().includes(searchTerm.toLowerCase())
-  );
-
-  // CSS style for cursor pointer
+  const levelOptions = allLevel.slice(1);
   const cursor: React.CSSProperties[] = [{ cursor: "pointer" }];
 
-  // Mock data for talents (replace with API data in production)
-  const talents = [
-    {
-      Name: "jet",
-      Email: "jett@yopmail.com",
-      Level: "-",
-      Skills: "dash, up",
-      YoE: "",
-      Availability: "",
-      ProfileFeedback: "",
-      Partner: "",
-      Status: "Pending",
-    },
-    {
-      Name: "sage",
-      Email: "sage@yopmail.com",
-      Level: "Senior",
-      Skills: "heal, wall, revive",
-      YoE: "5",
-      Availability: "Full-time",
-      ProfileFeedback: "Strong team support and leadership.",
-      Partner: "phoenix",
-      Status: "Active",
-    },
-    {
-      Name: "phoenix",
-      Email: "phoenix@yopmail.com",
-      Level: "Mid",
-      Skills: "flash, heal, fireball",
-      YoE: "3",
-      Availability: "Part-time",
-      ProfileFeedback: "Energetic and confident, needs teamwork improvement.",
-      Partner: "sage",
-      Status: "Pending Review",
-    },
-  ];
-
-  // Filter talents based on search term (by Name or Email)
-  const filteredTalents = talents.filter(
-    (t) =>
-      t.Name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      t.Email.toLowerCase().includes(searchTerm.toLowerCase())
+  // FILTERED TALENTS 
+  const filteredTalents = talents.filter((t) =>
+    (t.full_name || "").toLowerCase().includes(searchTerm.toLowerCase()) ||
+    (t.email || "").toLowerCase().includes(searchTerm.toLowerCase())
   );
 
-  // Interface for job comments data structure
+  // FETCH DATA FROM API
+  useEffect(() => {
+    const token = localStorage.getItem("jwt_token");
+    console.log("Token:", token); // check token exist
+
+    if (!token) {
+      setError("not found.");
+      setLoading(false);
+      return;
+    }
+
+    const fetchListData = async () => {
+      try {
+        setLoading(true);
+        setError("");
+
+        const payload = {
+          page: 1,
+          size: 30,
+          skill_filter_requests: [],
+          job_positions: [],
+          partner_ids: [],
+          expert_domains: [],
+          languages: [],
+          levels: [],
+          profile_feedbacks: [],
+          statuses: [],
+        };
+
+        const res = await axios.post("https://dev-api.talentx.asia/api/v1/users/list", payload, {
+          headers: {
+            "Auth-Token": `Bearer ${token}`,
+            "Content-Type": "application/json",
+          },
+        });
+
+        // IN RA CONSOLE ĐỂ XEM CẤU TRÚC THẬT
+        // console.log("FULL API RESPONSE:", res.data);
+        // console.log("DATA ARRAY:", res.data.data);
+
+        // list data: res.data.data
+        const apiTalents = Array.isArray(res.data.data) ? res.data.data : [];
+        setTalents(apiTalents);
+
+        if (apiTalents.length === 0) {
+          setError("Danh sách rỗng. Có thể không có dữ liệu hoặc filter sai.");
+        }
+      } catch (err) {
+        console.error("API ERROR:", err);
+        console.error("Response:", err);
+        setError(`${err}Lỗi kết nối API`);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchListData();
+  }, []);
+
+  // HANDLERS
+  const handleCopyEmail = (email: string) => {
+    navigator.clipboard.writeText(email).then(() => {
+      setCopy(email);
+      setTimeout(() => setCopy(""), 2000);
+    });
+  };
+
+  const handleExport = () => {
+    const exportData = filteredTalents.map((t) => ({
+      Name: t.full_name || "-",
+      Email: t.email || "-",
+      Level: t.level || "-",
+      Skills: Array.isArray(t.skills) ? t.skills.join(", ") : t.skills || "-",
+      YoE: t.years_of_experience ?? "-",
+      Availability: t.availability || "-",
+      ProfileFeedback: t.profile_feedback || "-",
+      Partner: t.partner || "-",
+      Status: t.status || "Pending",
+    }));
+
+    const worksheet = XLSX.utils.json_to_sheet(exportData);
+    const workbook = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(workbook, worksheet, "Talent Members");
+    XLSX.writeFile(workbook, "talents.xlsx");
+  };
+
+  // MOCK JOB COMMENTS & LOGS
   interface JobComment {
     companyName: string;
     position: string;
-    status: {
-      from: string;
-      to: string;
-    };
+    status: { from: string; to: string };
     duration: string;
   }
+  // interface Log {
+  //   companyName: string;
+  //   position: string;
+  //   expectedSalary: string;
+  //   skills: string;
+  //   expertDomains: string;
+  //   status: string;
+  // }
 
-  // Interface for logs data structure
-  interface Log {
-    companyName: string;
-    position: string;
-    expectedSalary: string;
-    skills: string;
-    expertDomains: string;
-    status: string;
-  }
-
-  // Mock data for job comments
-  const [jobComments, setJobComments] = useState<JobComment[]>([
+  const [jobComments] = useState<JobComment[]>([
     {
       companyName: "DigiEx Group",
       position: "Backend Developer",
-      status: {
-        from: "Applied",
-        to: "Proposed",
-      },
+      status: { from: "Applied", to: "Proposed" },
       duration: "3m",
     },
   ]);
 
-  // Mock data for logs
-  const [logs, setLogs] = useState<Log[]>([
-    {
-      companyName: "AAT Group",
-      position: "Manual Tester Intern",
-      expectedSalary: "$0",
-      skills: "-",
-      expertDomains: "-",
-      status: "Applied",
-    },
-    {
-      companyName: "Testing Solution",
-      position: "AI Engineer",
-      expectedSalary: "$0",
-      skills: "-",
-      expertDomains: "-",
-      status: "Applied",
-    },
-  ]);
+  // const [logs] = useState<Log[]>([
+  //   {
+  //     companyName: "AAT Group",
+  //     position: "Manual Tester Intern",
+  //     expectedSalary: "$0",
+  //     skills: "-",
+  //     expertDomains: "-",
+  //     status: "Applied",
+  //   },
+  //   {
+  //     companyName: "Testing Solution",
+  //     position: "AI Engineer",
+  //     expectedSalary: "$0",
+  //     skills: "-",
+  //     expertDomains: "-",
+  //     status: "Applied",
+  //   },
+  // ]);
 
   return (
     <div className="flex">
-      {/* Sidebar component for navigation */}
       <Sidebar />
 
-      {/* Filter panel (toggles visibility) */}
+      {/* Filter Panel */}
       {showFilters && (
         <div className="w-64 bg-white border-r p-4 space-y-4">
-          {/* Filter header with title and clear button */}
           <div className="flex justify-between items-center mb-2">
             <h2 className="text-lg font-semibold text-purple-700">Filter</h2>
             <button
@@ -183,7 +199,7 @@ export default function Dashboard() {
               Clear All
             </button>
           </div>
-          {/* Filter sections (Skills, Position, etc.) */}
+
           {[
             "Skills",
             "Position",
@@ -198,7 +214,6 @@ export default function Dashboard() {
             "Internal",
           ].map((label) => (
             <div key={label} className="border-b pb-2">
-              {/* Filter section toggle button */}
               <button
                 className="w-full text-left text-sm text-gray-700 font-medium flex justify-between items-center"
                 onClick={() => setOpenFilter(openFilter === label ? null : label)}
@@ -212,10 +227,9 @@ export default function Dashboard() {
                   <ChevronDown size={16} />
                 </span>
               </button>
-              {/* Filter content (shown when section is expanded) */}
+
               {openFilter === label && (
                 <div className="mt-2 space-y-2">
-                  {/* Skills filter (placeholder for adding skills) */}
                   {label === "Skills" && (
                     <button className="flex items-center space-x-1 text-sm text-purple-600 hover:underline">
                       <Plus size={16} />
@@ -223,10 +237,8 @@ export default function Dashboard() {
                     </button>
                   )}
 
-                  {/* Position filter with search and checkboxes */}
                   {label === "Position" && (
                     <div className="space-y-2">
-                      {/* Search input for positions */}
                       <div className="relative w-full max-w-sm">
                         <input
                           type="text"
@@ -239,7 +251,6 @@ export default function Dashboard() {
                           <FaSearch />
                         </span>
                       </div>
-                      {/* Selected position tags */}
                       {selectedPositions.length > 0 && (
                         <div className="flex flex-wrap gap-2 mb-2">
                           {selectedPositions.map((pos) => (
@@ -262,36 +273,37 @@ export default function Dashboard() {
                           ))}
                         </div>
                       )}
-                      {/* Checkbox list for positions */}
                       <div className="max-h-48 overflow-y-auto space-y-2">
-                        {filteredPositions.map((pos) => (
-                          <label
-                            key={pos}
-                            className="flex items-center space-x-2 text-sm text-gray-700"
-                          >
-                            <input
-                              type="checkbox"
-                              checked={selectedPositions.includes(pos)}
-                              onChange={() => {
-                                setSelectedPositions((prev) =>
-                                  prev.includes(pos)
-                                    ? prev.filter((p) => p !== pos)
-                                    : [...prev, pos]
-                                );
-                              }}
-                              className="form-checkbox text-purple-600"
-                            />
-                            <span>{pos}</span>
-                          </label>
-                        ))}
+                        {allPositions
+                          .filter((pos) =>
+                            pos.toLowerCase().includes(searchTerm.toLowerCase())
+                          )
+                          .map((pos) => (
+                            <label
+                              key={pos}
+                              className="flex items-center space-x-2 text-sm text-gray-700"
+                            >
+                              <input
+                                type="checkbox"
+                                checked={selectedPositions.includes(pos)}
+                                onChange={() => {
+                                  setSelectedPositions((prev) =>
+                                    prev.includes(pos)
+                                      ? prev.filter((p) => p !== pos)
+                                      : [...prev, pos]
+                                  );
+                                }}
+                                className="form-checkbox text-purple-600"
+                              />
+                              <span>{pos}</span>
+                            </label>
+                          ))}
                       </div>
                     </div>
                   )}
 
-                  {/* Total Experience filter with min/max inputs and slider */}
                   {label === "Total Experience" && (
                     <div className="space-y-4">
-                      {/* Min/Max experience inputs */}
                       <div className="flex space-x-2">
                         <input
                           type="number"
@@ -312,7 +324,6 @@ export default function Dashboard() {
                           max={30}
                         />
                       </div>
-                      {/* Quick select buttons for experience */}
                       <div className="flex space-x-2">
                         {[0, 9].map((val) => (
                           <button
@@ -327,7 +338,6 @@ export default function Dashboard() {
                           </button>
                         ))}
                       </div>
-                      {/* Experience range sliders */}
                       <div className="flex items-center space-x-2">
                         <span className="text-xs text-gray-500">0</span>
                         <input
@@ -351,46 +361,43 @@ export default function Dashboard() {
                     </div>
                   )}
 
-                  {/* Level filter with checkboxes */}
                   {label === "Level" && (
                     <div className="space-y-2">
-                      <div className="space-y-2">
-                        {allLevel.map((level) => (
-                          <label
-                            key={level}
-                            className="flex items-center space-x-2 text-sm text-gray-700"
-                          >
-                            <input
-                              type="checkbox"
-                              checked={
-                                level === "All"
-                                  ? levelOptions.every((opt) =>
-                                      selectedLevels.includes(opt)
-                                    )
-                                  : selectedLevels.includes(level)
-                              }
-                              onChange={() => {
-                                if (level === "All") {
-                                  const isAllSelected = levelOptions.every((opt) =>
+                      {allLevel.map((level) => (
+                        <label
+                          key={level}
+                          className="flex items-center space-x-2 text-sm text-gray-700"
+                        >
+                          <input
+                            type="checkbox"
+                            checked={
+                              level === "All"
+                                ? levelOptions.every((opt) =>
                                     selectedLevels.includes(opt)
-                                  );
-                                  setSelectedLevels(
-                                    isAllSelected ? [] : [...levelOptions]
-                                  );
-                                } else {
-                                  setSelectedLevels((prev) =>
-                                    prev.includes(level)
-                                      ? prev.filter((l) => l !== level)
-                                      : [...prev, level]
-                                  );
-                                }
-                              }}
-                              className="form-checkbox text-purple-600"
-                            />
-                            <span>{level}</span>
-                          </label>
-                        ))}
-                      </div>
+                                  )
+                                : selectedLevels.includes(level)
+                            }
+                            onChange={() => {
+                              if (level === "All") {
+                                const isAllSelected = levelOptions.every((opt) =>
+                                  selectedLevels.includes(opt)
+                                );
+                                setSelectedLevels(
+                                  isAllSelected ? [] : [...levelOptions]
+                                );
+                              } else {
+                                setSelectedLevels((prev) =>
+                                  prev.includes(level)
+                                    ? prev.filter((l) => l !== level)
+                                    : [...prev, level]
+                                );
+                              }
+                            }}
+                            className="form-checkbox text-purple-600"
+                          />
+                          <span>{level}</span>
+                        </label>
+                      ))}
                     </div>
                   )}
                 </div>
@@ -400,16 +407,14 @@ export default function Dashboard() {
         </div>
       )}
 
-      {/* Main content area */}
+      {/* Main Content */}
       <main className="flex-1 bg-gray-100 p-6">
-        {/* Breadcrumb navigation */}
         <div className="flex items-center space-x-2 text-sm text-gray-600 mb-2">
           <House size={16} />
           <span className="text-gray-400">›</span>
           <span className="font-medium text-gray-800">Talents</span>
         </div>
 
-        {/* Header with filter toggle, title, and search/export */}
         <div className="flex items-center justify-between mb-4">
           <div className="flex items-center space-x-3">
             <button
@@ -420,11 +425,10 @@ export default function Dashboard() {
             </button>
             <h1 className="text-2xl font-bold text-purple-700">Talent Members</h1>
             <span className="px-3 py-1 text-sm rounded-full bg-purple-100 text-purple-700">
-              {filteredTalents.length} users
+              {loading ? "..." : filteredTalents.length} users
             </span>
           </div>
           <div className="flex items-center space-x-4">
-            {/* Search input for talents */}
             <div className="relative w-full max-w-sm">
               <input
                 type="text"
@@ -437,7 +441,6 @@ export default function Dashboard() {
                 <FaSearch />
               </span>
             </div>
-            {/* Export button */}
             <button
               className="flex items-center space-x-2 px-4 py-2 bg-purple-600 text-white rounded hover:bg-purple-700"
               onClick={handleExport}
@@ -448,17 +451,12 @@ export default function Dashboard() {
           </div>
         </div>
 
-        {/* Talent table */}
+        {/* Table */}
         <div className="overflow-x-auto bg-white rounded-lg shadow-md">
           <table className="min-w-full text-sm text-left">
             <thead className="bg-purple-600 text-white">
               <tr>
-                <div className="flex">
-                  <th className="px-4 py-2 flex-1 cursor-pointer">Name</th>
-                  <th className="flex-1 pr-20">
-                    <ArrowBigUp />
-                  </th>
-                </div>
+                <th className="px-4 py-2">Name</th>
                 <th className="px-4 py-2">Level</th>
                 <th className="px-4 py-2">Skills</th>
                 <th className="px-4 py-2">YoE</th>
@@ -469,60 +467,78 @@ export default function Dashboard() {
               </tr>
             </thead>
             <tbody>
-              {filteredTalents.map((talent, index) => (
-                <tr key={index} className="border-b hover:bg-gray-50">
+              {loading && (
+                <tr>
+                  <td colSpan={8} className="text-center py-8 text-purple-600">
+                    Load data...
+                  </td>
+                </tr>
+              )}
+              {error && (
+                <tr>
+                  <td colSpan={8} className="text-center py-8 text-red-500">
+                    {error}
+                  </td>
+                </tr>
+              )}
+              {!loading && !error && filteredTalents.length === 0 && (
+                <tr>
+                  <td colSpan={8} className="text-center py-8 text-gray-500">
+                    Not find data
+                  </td>
+                </tr>
+              )}
+              {!loading && !error && filteredTalents.map((talent, index) => (
+                <tr key={talent.id || index} className="border-b hover:bg-gray-50">
                   <td className="px-4 py-2">
                     <div className="flex items-center space-x-3">
-                      {/* Talent avatar */}
-                      <div className="bg-purple-600 text-white rounded-full w-8 h-8 flex items-center justify-center font-bold uppercase">
-                        {talent.Name.slice(0, 2)}
+                      <div className="bg-purple-600 text-white rounded-full w-8 h-8 flex items-center justify-center font-bold uppercase text-xs">
+                        {talent.full_name?.slice(0, 2) || "NA"}
                       </div>
                       <div>
                         <div className="font-medium text-gray-800">
-                          {talent.Name}
+                          {talent.full_name || "-"}
                         </div>
-                        <div className="text-xs text-gray-500">{talent.Email}</div>
+                        <div className="text-xs text-gray-500">{talent.email || "-"}</div>
                       </div>
-                      {/* Copy email button */}
                       <div
                         className="flex items-center space-x-2 group"
-                        onClick={() => handleCopyEmail(talent.Email)}
+                        onClick={() => handleCopyEmail(talent.email)}
                         style={cursor[0]}
                       >
                         <Copy
                           size={16}
                           className="text-gray-400 group-hover:text-purple-600 transition-colors"
                         />
-                        {copy === talent.Email && (
+                        {copy === talent.email && (
                           <span className="text-green-600 text-xs font-medium">
                             Copied!
                           </span>
                         )}
                       </div>
-                      {/* Placeholder for additional action */}
                       <div style={cursor[0]}>
                         <MessageCirclePlus size={16} />
                       </div>
-                      {/* Comment button to open comment panel */}
-                      <div
-                        style={cursor[0]}
+                      <div style={cursor[0]}
                         className="flex items-center gap-1"
-                        onClick={() => setActiveCommentTalent(talent.Name)}
+                        onClick={() => setActiveCommentTalent(talent.full_name)}
                       >
-                        <span>{comments[talent.Name]?.length || 0}</span>
+                        <span>{comments[talent.full_name]?.length || 0}</span>
                         <MessageCircle size={16} />
                       </div>
                     </div>
                   </td>
-                  <td className="px-4 py-2">{talent.Level}</td>
-                  <td className="px-4 py-2">{talent.Skills}</td>
-                  <td className="px-4 py-2">{talent.YoE}</td>
-                  <td className="px-4 py-2">{talent.Availability}</td>
-                  <td className="px-4 py-2">{talent.ProfileFeedback}</td>
-                  <td className="px-4 py-2">{talent.Partner}</td>
+                  <td className="px-4 py-2">{talent.level || "-"}</td>
+                  <td className="px-4 py-2">
+                    {Array.isArray(talent.skills) ? talent.skills.join(", ") : talent.skills || "-"}
+                  </td>
+                  <td className="px-4 py-2">{talent.years_of_experience ?? "-"}</td>
+                  <td className="px-4 py-2">{talent.availability || "-"}</td>
+                  <td className="px-4 py-2">{talent.profile_feedback || "-"}</td>
+                  <td className="px-4 py-2">{talent.partner || "-"}</td>
                   <td className="px-4 py-2">
                     <span className="px-2 py-1 rounded-full text-xs font-semibold bg-yellow-100 text-yellow-700">
-                      {talent.Status || "Pending"}
+                      {talent.status || "Pending"}
                     </span>
                   </td>
                 </tr>
@@ -531,7 +547,7 @@ export default function Dashboard() {
           </table>
         </div>
 
-        {/* Comment panel (shown when a talent's comment button is clicked) */}
+        {/* Comment Panel */}
         {activeCommentTalent && (
           <div className="fixed top-0 right-0 h-full w-96 bg-white shadow-lg border-l z-50 p-6 overflow-y-auto">
             <div className="flex justify-between items-center mb-4">
@@ -546,7 +562,6 @@ export default function Dashboard() {
               </button>
             </div>
             <div className="mb-4">
-              {/* Tabs for comments, job comments, and logs */}
               <div className="flex space-x-4 border-b pb-2 mb-4">
                 <button
                   onClick={() => setActiveTab("comments")}
@@ -580,7 +595,6 @@ export default function Dashboard() {
                 </button>
               </div>
 
-              {/* Comments tab content */}
               {activeTab === "comments" && (
                 <>
                   <ul className="space-y-3">
@@ -594,7 +608,6 @@ export default function Dashboard() {
                       </li>
                     ))}
                   </ul>
-                  {/* Input for adding new comments */}
                   <input
                     type="text"
                     placeholder="Add a comment..."
@@ -609,14 +622,13 @@ export default function Dashboard() {
                             newComment,
                           ],
                         }));
-                        e.currentTarget.value = ""; // Clear input
+                        e.currentTarget.value = "";
                       }
                     }}
                   />
                 </>
               )}
 
-              {/* Job Comments tab content */}
               {activeTab === "logs" && (
                 <div className="space-y-4">
                   {jobComments.map((comment, idx) => (
@@ -639,7 +651,6 @@ export default function Dashboard() {
                 </div>
               )}
 
-              {/* Logs tab content */}
               {activeTab === "jobComments" && (
                 <div className="space-y-4">
                   {logs.map((log, idx) => (
@@ -657,9 +668,7 @@ export default function Dashboard() {
                             <span>{log.companyName}</span>
                           </div>
                           <div className="flex justify-between">
-                            <span className="text-gray-500">
-                              Expected salary
-                            </span>
+                            <span className="text-gray-500">Expected salary</span>
                             <span>{log.expectedSalary}</span>
                           </div>
                           <div className="flex justify-between">
